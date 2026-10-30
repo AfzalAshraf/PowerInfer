@@ -91,6 +91,23 @@ def main():
 
     ROOT = Path(__file__).resolve().parent
 
+    # --- 2050 Orchestrator passthrough ---
+    # Allow: ./powerinfer orchestrator status  OR  ./powerinfer --orchestrator
+    # If first arg is orchestrator, delegate to orchestrator CLI
+    if len(sys.argv) > 1 and sys.argv[1] == "orchestrator":
+        # Shift args and delegate
+        sys.argv.pop(1)  # remove 'orchestrator'
+        from orchestrator.cli import main as orch_main
+        # Re-parse with orchestrator profile context
+        # Pass through vram/ram if present in original args
+        orch_main()
+        return
+    if "--orchestrator" in sys.argv:
+        sys.argv.remove("--orchestrator")
+        from orchestrator.cli import main as orch_main
+        orch_main()
+        return
+
     # Handle polished profile helpers before inference
     if args.list_presets:
         import subprocess as sp

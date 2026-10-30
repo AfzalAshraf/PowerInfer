@@ -1,0 +1,52 @@
+# PowerInfer 2050 — Living Orchestrator Config
+# One file to rule ANY model on ANY hardware
+version: "2050.0.1"
+profile: auto  # auto-detects 6GB LOQ → laptop-6gb, 32GB → workstation-32gb
+
+cache_dir: ~/.cache/powerinfer
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  cors: true
+  # OpenAI + Ollama + LMStudio compat in one port
+  compat: ["openai", "ollama", "lmstudio", "anthropic"]
+
+memory:
+  vram_budget_gb: auto
+  kv_cache_mb: auto
+  cold_lru_mb: auto
+  # Holographic fabric
+  continuous_batching: true
+  paged_attention: true
+  prefix_caching: true
+
+router:
+  enabled: true
+  confidence_threshold: 0.7
+  # Neuro-swarm picks model in <2ms
+  fallback: true
+  ensemble: false
+
+scheduling:
+  speculative_decode: true
+  draft_models: ["phi3-mini"]  # 3x draft for 2050 speed
+
+workflows:
+  auto_heal: true
+  max_loops: 5
+  human_in_loop: false
+
+plugins:
+  enabled: ["memory", "web", "code"]
+  auto_load: true
+
+observability:
+  metrics: true
+  tracing: true
+  dashboard_port: 3000
+
+# Model aliases — add your own
+models:
+  my-7b: "Qwen/Qwen2.5-7B-Instruct"
+  my-code: "Qwen/Qwen2.5-Coder-7B-Instruct"

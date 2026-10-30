@@ -1,0 +1,12 @@
+# Laptop 6GB Profile — Orchestrator Tuned
+# Inherits from PowerInfer profiles/laptop-6gb.yaml
+extends: "../../profiles/laptop-6gb.yaml"
+orchestrator:
+  vram_budget_gb: 5
+  kv_cache_mb: 512
+  cold_lru_mb: 256
+  batch_size: 1
+  speculative_decode: false  # save VRAM
+router:
+  prefer_small: true
+  fallback: ["phi3-mini", "qwen2.5-7b"]

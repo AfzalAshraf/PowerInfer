@@ -1,0 +1,22 @@
+name: code-review
+description: Analyze → Test → Fix parallel workflow
+nodes:
+  - id: analyze
+    model: qwen2.5-coder-7b
+    input: "Review this code for bugs and style:\n{{input}}"
+  - id: tests
+    model: deepseek-coder-6.7b
+    input: "Write unit tests for:\n{{input}}"
+  - id: fix
+    model: qwen2.5-coder-7b
+    input: |
+      Original code:
+      {{input}}
+      Review: {{analyze.output}}
+      Tests: {{tests.output}}
+      Provide fixed code with tests passing.
+edges:
+  - from: analyze
+    to: fix
+  - from: tests
+    to: fix

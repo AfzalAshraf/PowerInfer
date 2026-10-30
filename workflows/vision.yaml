@@ -1,0 +1,13 @@
+name: vision-analyze
+description: Vision + LLM chain
+nodes:
+  - id: describe
+    model: llava-7b
+    task: vision
+    input: "Describe the image: {{input}}"
+  - id: reason
+    model: qwen2.5-7b
+    input: "Image description: {{describe.output}}\nQuestion: What is happening? Explain step by step."
+edges:
+  - from: describe
+    to: reason

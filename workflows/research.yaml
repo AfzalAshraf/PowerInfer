@@ -1,0 +1,26 @@
+name: research-agent
+description: Retrieve → Synthesize → Critique loop (agentic)
+vars:
+  query: "{{input}}"
+nodes:
+  - id: retrieve
+    model: bge-base
+    task: embed
+    input: "{{query}}"
+  - id: synthesize
+    model: auto
+    input: |
+      Context: {{retrieve.output}}
+      Question: {{query}}
+      Answer concisely with citations. If unsure, say so.
+  - id: critic
+    model: phi3-mini
+    input: |
+      Critique this answer for hallucinations and completeness:
+      {{synthesize.output}}
+      Reply with PASS or FAIL and reason.
+edges:
+  - from: retrieve
+    to: synthesize
+  - from: synthesize
+    to: critic
