@@ -92,7 +92,10 @@ class GGUFReader:
             # If we get 0 here that means it's (probably) a GGUF file created for
             # the opposite byte order of the machine this script is running on.
             self.byte_order = 'S'
-            temp_version = temp_version.newbyteorder(self.byte_order)
+            try:
+                temp_version = temp_version.view(temp_version.dtype.newbyteorder(self.byte_order))
+            except AttributeError:
+                temp_version = temp_version.byteswap().view(temp_version.dtype)
         version = temp_version[0]
         if version not in READER_SUPPORTED_VERSIONS:
             raise ValueError(f'Sorry, file appears to be version {version} which we cannot handle')
@@ -131,11 +134,32 @@ class GGUFReader:
         count = int(count)
         itemsize = int(np.empty([], dtype = dtype).itemsize)
         end_offs = offset + itemsize * count
-        return (
-            self.data[offset:end_offs]
-            .view(dtype = dtype)[:count]
-            .newbyteorder(override_order or self.byte_order)
-        )
+        arr = self.data[offset:end_offs].view(dtype = dtype)[:count]
+        # numpy 2.0 compatibility: newbyteorder was removed, use view with dtype new order or byteswap
+        order = override_order or self.byte_order
+        if order in ('<', '>'):
+            # Need to handle endian swap if needed
+            # For little endian host, '<' is native; 'S' means swapped
+            # Use dtype with byteorder if possible
+            try:
+                return arr.view(arr.dtype.newbyteorder(order))
+            except AttributeError:
+                # numpy 2 fallback: use byteswap if host order differs
+                import sys
+                native = '<' if sys.byteorder == 'little' else '>'
+                if order != native and order in ('<', '>'):
+                    return arr.byteswap().view(arr.dtype.newbyteorder() if hasattr(arr.dtype, 'newbyteorder') else arr.dtype)
+                return arr
+        elif order == 'S':
+            # swapped
+            try:
+                return arr.byteswap().view(arr.dtype)
+            except Exception:
+                return arr
+        else:
+            # 'I' native
+            return arr
+        return arr
 
     def _push_field(self, field: ReaderField, skip_sum: bool = False) -> int:
         if field.name in self.fields:

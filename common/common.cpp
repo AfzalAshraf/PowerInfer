@@ -573,6 +573,34 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
 #else
             fprintf(stderr, "warning: PowerInfer was compiled without cuBLAS. It is not possible to set a VRAM budget.\n");
 #endif
+        } else if (arg == "--predictor") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            params.predictor = argv[i];
+        } else if (arg == "--hot-layers") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            params.hot_layers = argv[i];
+        } else if (arg == "--cold-cache") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            params.cold_cache_mb = std::stoi(argv[i]);
+        } else if (arg == "--sparsity-threshold") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            params.sparsity_threshold = std::stof(argv[i]);
+        } else if (arg == "--fallback-dense") {
+            params.fallback_dense = true;
+        } else if (arg == "--verbose") {
+            params.verbose_powerinfer = true;
         } else if (arg == "--no-mul-mat-q" || arg == "-nommq") {
 #ifdef GGML_USE_CUBLAS
             params.mul_mat_q = false;
@@ -810,6 +838,12 @@ void gpt_print_usage(int /*argc*/, char ** argv, const gpt_params & params) {
     printf("                        not recommended: doubles context memory required and no measurable increase in quality\n");
     printf("  --temp N              temperature (default: %.1f)\n", (double)sparams.temp);
     printf("  --vram-budget N       VRAM budget in GiB (default: -1, -1 = available VRAM)\n");
+    printf("  --predictor FNAME     PowerInfer 2.0 predictor file (.predictor) for sparse inference\n");
+    printf("  --hot-layers SPEC     PowerInfer sparse hot layers (default: all)\n");
+    printf("  --cold-cache N        PowerInfer cold LRU cache size MB (default: 512)\n");
+    printf("  --sparsity-threshold N PowerInfer sparsity threshold (default: 0.15)\n");
+    printf("  --fallback-dense      PowerInfer fallback to dense when predictor low confidence\n");
+    printf("  --verbose             PowerInfer verbose sparse stats\n");
     printf("  --logits-all          return logits for all tokens in the batch (default: disabled)\n");
     printf("  --hellaswag           compute HellaSwag score over random tasks from datafile supplied with -f\n");
     printf("  --hellaswag-tasks N   number of tasks to use when computing the HellaSwag score (default: %zu)\n", params.hellaswag_tasks);

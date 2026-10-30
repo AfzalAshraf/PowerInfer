@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper for convert_sparse.py to support CLI spec: ./convert_sparse --input ... etc
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/convert_sparse.py" "$@"

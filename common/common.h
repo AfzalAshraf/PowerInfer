@@ -129,6 +129,14 @@ struct gpt_params {
     // multimodal models (see examples/llava)
     std::string mmproj = ""; // path to multimodal projector
     std::string image = ""; // path to an image file
+
+    // PowerInfer 2.0 sparse inference
+    std::string predictor = ""; // path to .predictor file
+    std::string hot_layers = "all"; // which layers use hot path
+    int32_t cold_cache_mb = 512; // LRU cache size for cold weights
+    float sparsity_threshold = 0.15f; // hot ratio threshold
+    bool fallback_dense = false; // allow fallback to dense when confidence low
+    bool verbose_powerinfer = false; // verbose sparse stats
 };
 
 bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params);

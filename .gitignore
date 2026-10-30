@@ -100,3 +100,4 @@ tests/test-tokenizer-1-llama
 tests/test-tokenizer-1-bpe
 
 build-info.h
+benchmark_results.json
