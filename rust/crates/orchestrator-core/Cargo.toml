@@ -1,0 +1,41 @@
+[package]
+name = "orchestrator-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PowerInfer 2050 — Blazing fast Rust core for orchestrator (hardware, registry, router, memory, workflow)"
+
+[lib]
+name = "orchestrator_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+rayon.workspace = true
+dashmap.workspace = true
+sysinfo.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+crossbeam.workspace = true
+parking_lot.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+clap.workspace = true
+# Optional pyo3 for Python binding — uncomment when maturin is available
+# pyo3 = { version = "0.22", features = ["extension-module"] }
+
+[features]
+default = []
+python = ["pyo3"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+# Blazing fast: native CPU, no bounds checks where safe

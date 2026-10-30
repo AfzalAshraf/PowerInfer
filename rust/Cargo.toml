@@ -1,0 +1,33 @@
+[workspace]
+members = ["crates/orchestrator-core", "crates/powerinfer-api", "crates/powerinfer-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "2050.0.1"
+edition = "2021"
+authors = ["PowerInfer 2050 Team"]
+license = "Apache-2.0"
+repository = "https://github.com/AfzalAshraf/PowerInfer"
+description = "PowerInfer 2050 — Blazing fast Rust core. The speed ceiling for professional AI orchestration."
+
+[workspace.dependencies]
+tokio = { version = "1.38", features = ["full"] }
+axum = { version = "0.7", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rayon = "1.10"
+dashmap = "6.0"
+sysinfo = "0.30"
+nvml-wrapper = "0.10"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+crossbeam = "0.8"
+parking_lot = "0.12"
+uuid = { version = "1.8", features = ["v4"] }
+chrono = "0.4"
+futures = "0.3"
