@@ -1,0 +1,25 @@
+[package]
+name = "powerinfer-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PowerInfer 2050 — Blazing fast Axum API (OpenAI + Ollama compat), 10x faster than Python FastAPI"
+
+[[bin]]
+name = "powerinfer-api"
+path = "src/main.rs"
+
+[dependencies]
+orchestrator-core = { path = "../orchestrator-core" }
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+futures = "0.3"

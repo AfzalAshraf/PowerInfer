@@ -1,0 +1,54 @@
+# PowerInfer 2.0 — Polished Profile: Desktop 24GB Enthusiast (RTX 4090)
+# Hardware: RTX 4090 24GB / RTX 3090 24GB + 64GB RAM
+# Best for: Enthusiast, can run 30B/70B dense-ish but sparse gives 3x headroom
+# Tier: ENTHUSIAST — max hot, largest LRU
+
+name: "desktop-24gb"
+display_name: "Desktop 24GB Enthusiast — RTX 4090 24GB / 3090 24GB"
+description: "For 24GB: 20% hot, 30% warm, 1536MB LRU, 8192 context possible. 30B at 40 tok/s+."
+hardware:
+  vram_gb: 24
+  ram_gb: 64
+  gpu: "RTX 4090 24GB / RTX 3090 24GB"
+  arch: "sm_89"
+  pcie: "4.0 x16"
+
+profiler:
+  hot_ratio: 0.20
+  warm_ratio: 0.30
+  tokens: 75000
+  dataset: "redpajama" # more diverse for 24GB
+
+converter:
+  hot_quant: "q6_k"    # 6-bit for hot gives more VRAM for 70B
+  cold_quant: "q4_k_m"
+  cold_format: "csr"
+
+runtime:
+  cold_cache_mb: 1536
+  sparsity_threshold: 0.20
+  fallback_dense: true
+  hot_layers: "all"
+  context_length: 8192 # double context fits 24GB
+  vram_budget_gb: 22
+
+expected:
+  performance:
+    "7B-Q4": { dense_tok_s: 28, sparse_tok_s: 95, speedup: "3.4x", vram_mb: 16000, quality: "ΔPPL 0.10%" }
+    "13B-Q4": { dense_tok_s: 18, sparse_tok_s: 65, speedup: "3.6x", vram_mb: 19000, quality: "ΔPPL 0.14%" }
+    "30B-Q4": { dense_tok_s: 9, sparse_tok_s: 38, speedup: "4.2x", vram_mb: 22000, quality: "ΔPPL 0.18%" }
+    "70B-Q4": { dense_tok_s: 4, sparse_tok_s: 15, speedup: "3.7x", vram_mb: 23500, quality: "ΔPPL 0.25%" }
+  quality: "ΔPPL <0.2%, can push context to 8192"
+  ram_pinned_mb: 9200
+  notes: "Best for 70B Q4. For Windows, ensure --mlock and pagefile 64GB."
+
+cli:
+  profile: "python profile.py --model meta-llama/Llama-3-70B --dataset redpajama --tokens 75000 --hot-ratio 0.20 --warm-ratio 0.30 --output llama3-70b.predictor"
+  convert: "./convert_sparse --input llama-3-70b-q4_k_m.gguf --predictor llama3-70b.predictor --output llama-3-70b-sparse.gguf --hot-quant q6_k --cold-quant q4_k_m"
+  run: "./powerinfer -m llama-3-70b-sparse.gguf -p \"...\" -n 512 -c 8192 --predictor llama3-70b.predictor --cold-cache 1536 --sparsity-threshold 0.20 --vram-budget 22 --verbose"
+
+recommendation:
+  rank: 5
+  for_specs: "nvidia-smi 23-24GB VRAM → this"
+  best_for: "30B/70B"
+  stars: "★★★★★ for 24GB"

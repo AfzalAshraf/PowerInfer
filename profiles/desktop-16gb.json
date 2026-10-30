@@ -1,0 +1,70 @@
+{
+  "name": "desktop-16gb",
+  "display_name": "Desktop 16GB Performance \u2014 RTX 5080 16GB / 4080 (Spec 5080)",
+  "description": "Spec's RTX 5080 tier. 18% hot, 25% warm, 1024MB LRU, FP8 on Blackwell optional. Hits 80/45/20 targets.",
+  "hardware": {
+    "vram_gb": 16,
+    "ram_gb": 32,
+    "gpu": "RTX 5080 16GB / RTX 4080 16GB / RTX 4080 Super",
+    "arch": "sm_89 / sm_90",
+    "pcie": "4.0 x16 / 5.0 x16"
+  },
+  "profiler": {
+    "hot_ratio": 0.18,
+    "warm_ratio": 0.25,
+    "tokens": 50000,
+    "dataset": "c4-validation"
+  },
+  "converter": {
+    "hot_quant": "q8_0",
+    "cold_quant": "q4_k_m",
+    "cold_format": "csr"
+  },
+  "runtime": {
+    "cold_cache_mb": 1024,
+    "sparsity_threshold": 0.18,
+    "fallback_dense": true,
+    "hot_layers": "all",
+    "context_length": 4096,
+    "vram_budget_gb": 14
+  },
+  "expected": {
+    "performance": {
+      "7B-Q4": {
+        "dense_tok_s": 20,
+        "sparse_tok_s": 84,
+        "speedup": "4.2x",
+        "vram_mb": 11200,
+        "quality": "\u0394PPL 0.12%"
+      },
+      "13B-Q4": {
+        "dense_tok_s": 11,
+        "sparse_tok_s": 46,
+        "speedup": "4.2x",
+        "vram_mb": 13800,
+        "quality": "\u0394PPL 0.18%"
+      },
+      "30B-Q4": {
+        "dense_tok_s": 5.5,
+        "sparse_tok_s": 23,
+        "speedup": "4.2x",
+        "vram_mb": 15200,
+        "quality": "\u0394PPL 0.22%"
+      }
+    },
+    "quality": "\u0394PPL <0.2% \u2014 best quality tier",
+    "ram_pinned_mb": 6800,
+    "notes": "On Blackwell use --hot-quant q8_0 + FP8 (E4M3) for extra 10-15%."
+  },
+  "cli": {
+    "profile": "python profile.py --model meta-llama/Llama-3-8B --dataset c4-validation --tokens 50000 --hot-ratio 0.18 --warm-ratio 0.25 --output llama3-8b.predictor",
+    "convert": "./convert_sparse --input llama-3-8b-q4_k_m.gguf --predictor llama3-8b.predictor --output llama-3-8b-sparse.gguf --hot-quant q8_0 --cold-quant q4_k_m",
+    "run": "./powerinfer -m llama-3-8b-sparse.gguf -p \"...\" -n 512 -c 4096 --predictor llama3-8b.predictor --cold-cache 1024 --sparsity-threshold 0.18 --vram-budget 14 --verbose"
+  },
+  "recommendation": {
+    "rank": 4,
+    "for_specs": "nvidia-smi 15-16GB VRAM \u2192 this",
+    "best_for": "13B/30B Q4 at spec targets",
+    "stars": "\u2605\u2605\u2605\u2605\u2605 for 16GB enthusiast"
+  }
+}

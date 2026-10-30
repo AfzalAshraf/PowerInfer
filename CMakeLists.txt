@@ -100,6 +100,32 @@ option(LLAMA_BUILD_TESTS                "llama: build tests"    ${LLAMA_STANDALO
 option(LLAMA_BUILD_EXAMPLES             "llama: build examples" ${LLAMA_STANDALONE})
 option(LLAMA_BUILD_SERVER               "llama: build server example"                           ON)
 
+# PowerInfer 2.0 options
+option(GGML_CUDA                        "ggml: use CUDA"                                        OFF)
+option(SPARSE_FFN                       "powerinfer: enable sparse FFN kernels"                 ON)
+option(PREDICTOR_MLP                    "powerinfer: enable learned predictor MLP"              ON)
+option(FP8_SUPPORT                      "powerinfer: enable FP8 (E4M3) on Blackwell"            ON)
+set(COLD_CACHE_SIZE_MB "512" CACHE STRING "powerinfer: cold LRU cache size in MB")
+set(GGML_CUDA_ARCHITECTURES_DEFAULT "80;86;89;90;120" CACHE STRING "powerinfer: default CUDA architectures (Blackwell, Ada, Ampere, Hopper)")
+if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    if (GGML_CUDA)
+        set(CMAKE_CUDA_ARCHITECTURES "${GGML_CUDA_ARCHITECTURES_DEFAULT}" CACHE STRING "CUDA architectures")
+    endif()
+endif()
+if (SPARSE_FFN)
+    add_compile_definitions(POWERINFER_SPARSE_FFN)
+    message(STATUS "PowerInfer 2.0: SPARSE_FFN enabled")
+endif()
+if (PREDICTOR_MLP)
+    add_compile_definitions(POWERINFER_PREDICTOR_MLP)
+    message(STATUS "PowerInfer 2.0: PREDICTOR_MLP enabled")
+endif()
+if (FP8_SUPPORT)
+    add_compile_definitions(POWERINFER_FP8_SUPPORT)
+    message(STATUS "PowerInfer 2.0: FP8_SUPPORT enabled (Blackwell E4M3)")
+endif()
+add_compile_definitions(POWERINFER_COLD_CACHE_MB=${COLD_CACHE_SIZE_MB})
+
 #
 # Compile flags
 #
@@ -635,11 +661,53 @@ endif()
 # libraries
 #
 
+# PowerInfer 2.0 compatibility: map GGML_CUDA to LLAMA_CUBLAS & handle CUDA 12.8+ Blackwell
+if (GGML_CUDA AND NOT LLAMA_CUBLAS)
+    set(LLAMA_CUBLAS ON CACHE BOOL "llama: use CUDA (via GGML_CUDA)" FORCE)
+    message(STATUS "PowerInfer: GGML_CUDA=ON mapped to LLAMA_CUBLAS=ON for CUDA 12.8+ Blackwell support")
+endif()
+if (LLAMA_CUBLAS AND NOT GGML_CUDA)
+    set(GGML_CUDA ON CACHE BOOL "ggml: use CUDA" FORCE)
+endif()
+if (GGML_CUDA)
+    if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES "80;86;89;90;120" CACHE STRING "CUDA architectures")
+    endif()
+    message(STATUS "PowerInfer 2.0: CUDA architectures ${CMAKE_CUDA_ARCHITECTURES} (Blackwell sm_120, Ada sm_89, Ampere sm_80/86, Hopper sm_90)")
+    if (CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
+        message(WARNING "PowerInfer 2.0 recommends CUDA Toolkit 12.8+ for Blackwell sm_120 (found ${CMAKE_CUDA_COMPILER_VERSION})")
+    endif()
+endif()
+
 # ggml
 
 if (GGML_USE_CPU_HBM)
     add_definitions(-DGGML_USE_CPU_HBM)
     find_library(memkind memkind REQUIRED)
+endif()
+
+# PowerInfer 2.0 sources
+set(POWERINFER_SOURCES
+    src/predictor.cpp
+    src/memory_manager.cpp
+    src/sparse_gguf.cpp
+)
+set(POWERINFER_CUDA_SOURCES
+    src/sparse_ffn.cu
+)
+set(POWERINFER_HEADERS
+    include/powerinfer/sparse_config.h
+    include/powerinfer/sparse_gguf.h
+    include/powerinfer/predictor.h
+    include/powerinfer/sparse_ffn.h
+    include/powerinfer/memory_manager.h
+)
+if (SPARSE_FFN AND GGML_CUDA)
+    list(APPEND POWERINFER_SOURCES ${POWERINFER_CUDA_SOURCES})
+endif()
+# For non-CUDA builds, provide CPU fallback for sparse_ffn
+if (SPARSE_FFN AND NOT GGML_CUDA)
+    list(APPEND POWERINFER_SOURCES src/sparse_ffn_cpu.cpp)
 endif()
 
 add_library(ggml OBJECT
@@ -656,9 +724,10 @@ add_library(ggml OBJECT
             ${GGML_SOURCES_METAL} ${GGML_HEADERS_METAL}
             ${GGML_SOURCES_MPI} ${GGML_HEADERS_MPI}
             ${GGML_SOURCES_EXTRA} ${GGML_HEADERS_EXTRA}
+            ${POWERINFER_SOURCES} ${POWERINFER_HEADERS}
             )
 
-target_include_directories(ggml PUBLIC . ${LLAMA_EXTRA_INCLUDES})
+target_include_directories(ggml PUBLIC . ./include ${LLAMA_EXTRA_INCLUDES})
 target_compile_features(ggml PUBLIC c_std_11) # don't bump
 target_link_libraries(ggml PUBLIC Threads::Threads ${LLAMA_EXTRA_LIBS})
 if (GGML_USE_CPU_HBM)
