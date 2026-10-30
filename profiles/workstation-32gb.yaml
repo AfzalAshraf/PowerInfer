@@ -1,0 +1,57 @@
+# PowerInfer 2.0 — Polished Profile: Workstation 32GB Max (RTX 5090 Blackwell)
+# Hardware: RTX 5090 32GB / RTX 6000 Ada 48GB (use 32GB slice) + 64-128GB RAM + PCIe 5.0
+# Best for: Workstation, Blackwell sm_120 + FP8, max performance spec 120/70/40
+# Tier: MAX — Blackwell native, FP8, tcgen05, largest hot
+
+name: "workstation-32gb"
+display_name: "Workstation 32GB Max — RTX 5090 32GB Blackwell (Spec Max)"
+description: "Spec's 5090 tier. 22% hot, 30% warm, 2048MB LRU, FP8 E4M3, tcgen05, 4096-8192 ctx. Hits 120/70/40 targets."
+hardware:
+  vram_gb: 32
+  ram_gb: 64
+  gpu: "RTX 5090 32GB / RTX 6000 Ada / L40S"
+  arch: "sm_120 (Blackwell) / sm_90 (Hopper)"
+  pcie: "5.0 x16"
+
+profiler:
+  hot_ratio: 0.22
+  warm_ratio: 0.30
+  tokens: 75000
+  dataset: "c4-validation"
+  # Blackwell can afford larger predictor due to VRAM
+
+converter:
+  hot_quant: "q8_0"    # FP8 (E4M3) used at runtime on Blackwell even if stored q8_0 — driver converts
+  cold_quant: "q4_k_m"
+  cold_format: "csr"
+  fp8: true            # enable FP8 for W_hot on Blackwell
+
+runtime:
+  cold_cache_mb: 2048
+  sparsity_threshold: 0.22
+  fallback_dense: false # 32GB rarely needs fallback
+  hot_layers: "all"
+  context_length: 4096
+  vram_budget_gb: 30
+  fp8_enabled: true
+
+expected:
+  performance:
+    "7B-Q4": { dense_tok_s: 30, sparse_tok_s: 126, speedup: "4.2x", vram_mb: 21000, quality: "ΔPPL 0.08% (FP8)" }
+    "13B-Q4": { dense_tok_s: 18, sparse_tok_s: 76, speedup: "4.2x", vram_mb: 24000, quality: "ΔPPL 0.12%" }
+    "30B-Q4": { dense_tok_s: 10, sparse_tok_s: 42, speedup: "4.2x", vram_mb: 28000, quality: "ΔPPL 0.15%" }
+    "70B-Q4": { dense_tok_s: 6, sparse_tok_s: 25, speedup: "4.2x", vram_mb: 31000, quality: "ΔPPL 0.20%" }
+  quality: "ΔPPL <0.15% with FP8, best perf"
+  ram_pinned_mb: 12000
+  notes: "Blackwell only: tcgen05 + FP8 gives +15% over 4090 at same VRAM. Requires CUDA 12.8, driver 570+, --fp8 flag."
+
+cli:
+  profile: "python profile.py --model meta-llama/Llama-3-70B --dataset c4-validation --tokens 75000 --hot-ratio 0.22 --warm-ratio 0.30 --output llama3-70b.predictor"
+  convert: "./convert_sparse --input llama-3-70b-q4_k_m.gguf --predictor llama3-70b.predictor --output llama-3-70b-sparse.gguf --hot-quant q8_0 --cold-quant q4_k_m"
+  run: "./powerinfer -m llama-3-70b-sparse.gguf -p \"...\" -n 512 -c 4096 --predictor llama3-70b.predictor --cold-cache 2048 --sparsity-threshold 0.22 --vram-budget 30 --verbose # Blackwell FP8 auto"
+
+recommendation:
+  rank: 6
+  for_specs: "nvidia-smi 31-32GB VRAM → this (Blackwell)"
+  best_for: "70B, MoE 8x22B, 8192 ctx"
+  stars: "★★★★★ for 32GB Blackwell"

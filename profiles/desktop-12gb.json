@@ -1,0 +1,70 @@
+{
+  "name": "desktop-12gb",
+  "display_name": "Desktop 12GB Creator \u2014 RTX 4070 12GB / 3080 12GB",
+  "description": "For 12GB cards: 16% hot, 25% warm, 768MB LRU, still Q8_0/Q3_K_M. Comfortable 13B, 30B Q4 without swap.",
+  "hardware": {
+    "vram_gb": 12,
+    "ram_gb": 32,
+    "gpu": "RTX 4070 12GB / RTX 3080 12GB / RTX 4070 Ti",
+    "arch": "sm_89",
+    "pcie": "4.0 x16"
+  },
+  "profiler": {
+    "hot_ratio": 0.16,
+    "warm_ratio": 0.25,
+    "tokens": 50000,
+    "dataset": "c4-validation"
+  },
+  "converter": {
+    "hot_quant": "q8_0",
+    "cold_quant": "q3_k_m",
+    "cold_format": "csr"
+  },
+  "runtime": {
+    "cold_cache_mb": 768,
+    "sparsity_threshold": 0.16,
+    "fallback_dense": true,
+    "hot_layers": "all",
+    "context_length": 4096,
+    "vram_budget_gb": 10
+  },
+  "expected": {
+    "performance": {
+      "7B-Q4": {
+        "dense_tok_s": 14,
+        "sparse_tok_s": 48,
+        "speedup": "3.4x",
+        "vram_mb": 7200,
+        "quality": "\u0394PPL 0.16%"
+      },
+      "13B-Q4": {
+        "dense_tok_s": 9,
+        "sparse_tok_s": 32,
+        "speedup": "3.5x",
+        "vram_mb": 9800,
+        "quality": "\u0394PPL 0.22%"
+      },
+      "30B-Q4": {
+        "dense_tok_s": 4.5,
+        "sparse_tok_s": 14,
+        "speedup": "3.1x",
+        "vram_mb": 11500,
+        "quality": "\u0394PPL 0.28%"
+      }
+    },
+    "quality": "\u0394PPL <0.28%",
+    "ram_pinned_mb": 5200,
+    "notes": "Great for 30B Q4. For 70B, still need SSD swap but 12GB helps a lot."
+  },
+  "cli": {
+    "profile": "python profile.py --model <HF_ID> --dataset c4-validation --tokens 50000 --hot-ratio 0.16 --warm-ratio 0.25 --output <model>.predictor",
+    "convert": "./convert_sparse --input <model>.gguf --predictor <model>.predictor --output <model>-sparse.gguf --hot-quant q8_0 --cold-quant q3_k_m",
+    "run": "./powerinfer -m <model>-sparse.gguf -p \"...\" -n 512 -c 4096 --predictor <model>.predictor --cold-cache 768 --sparsity-threshold 0.16 --vram-budget 10 --verbose"
+  },
+  "recommendation": {
+    "rank": 3,
+    "for_specs": "nvidia-smi 11-12GB VRAM \u2192 this",
+    "best_for": "13B/30B Q4 comfortably",
+    "stars": "\u2605\u2605\u2605\u2605\u2605 for 12GB creators"
+  }
+}

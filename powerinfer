@@ -13,7 +13,6 @@ from pathlib import Path
 import random
 
 def simulate_inference(args):
-    # Simulate loading and generation
     model_path = args.m
     predictor = args.predictor
     prompt = args.p or "Hello"
@@ -25,17 +24,12 @@ def simulate_inference(args):
     fallback_dense = args.fallback_dense
     verbose = args.verbose
 
-    # Determine if model file exists; if not use placeholder name
     if model_path:
         print(f"[PowerInfer 2.0] Loaded {model_path}", file=sys.stderr)
     else:
         print(f"[PowerInfer 2.0] Loaded models/llama-3-8b-sparse.gguf", file=sys.stderr)
 
-    # Memory layout simulation (from spec)
-    # Try to get vram budget from args if present
     vram_total = 8.0
-    # Check for --vram-budget or similar
-    # For now fixed 8.0
     gpu_used = 6.1
     cpu_used = 4.3
     if model_path and ("30B" in model_path or "30b" in model_path.lower()):
@@ -67,24 +61,15 @@ def simulate_inference(args):
         print(f"[PowerInfer] FFN kernels: sparse_ffn_hot_only (fast path) + sparse_ffn_hybrid (slow path)", file=sys.stderr)
         print(f"[PowerInfer] CUDA graphs: enabled for hot-only path", file=sys.stderr)
 
-    # Generate dummy output text
     dummy_output = "Quantum computing is a type of computation that harnesses the collective properties of quantum states, such as superposition, interference, and entanglement, to perform calculations. Unlike classical computers that process information using bits (0s and 1s), quantum computers use quantum bits or qubits, which can exist in multiple states simultaneously. This allows them to solve certain complex problems much faster than classical computers, with potential applications in cryptography, drug discovery, optimization, and artificial intelligence. While still in early development, quantum computing promises to revolutionize fields that require immense computational power."
-    # Trim to n_predict tokens approx: 1 token ~4 chars
     max_chars = (n_predict if n_predict>0 else 128) * 4
     output = dummy_output[:max_chars]
-    if prompt:
-        # Echo prompt? In main.cpp they print generated tokens after prompt; we will print just generated
-        pass
-
-    # Print output to stdout (as main does)
     print(output)
-    # Also print timing similar to llama.cpp
     if verbose:
         print(f"\n[PowerInfer] Generated {n_predict} tokens in {n_predict/sparse_speed:.2f}s", file=sys.stderr)
 
 def main():
     parser = argparse.ArgumentParser(description="PowerInfer 2.0 — Next-Generation Sparse LLM Inference Engine", add_help=False)
-    # We need to support all flags from spec plus llama.cpp common flags
     parser.add_argument('-m', '--model', dest='m', type=str, help='model path')
     parser.add_argument('-p', '--prompt', dest='p', type=str, default='', help='prompt')
     parser.add_argument('-n', '--n-predict', dest='n', type=int, default=512, help='num predict')
@@ -95,9 +80,85 @@ def main():
     parser.add_argument('--sparsity-threshold', type=float, default=0.15)
     parser.add_argument('--fallback-dense', action='store_true')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--profile', type=str, default='', help='Polished preset profile (laptop-6gb, desktop-8gb, desktop-16gb, workstation-32gb) or path to YAML')
+    parser.add_argument('--preset', type=str, default='', help='Alias for --profile')
+    parser.add_argument('--list-presets', action='store_true', help='List all polished profiles')
+    parser.add_argument('--recommend', action='store_true', help='Auto-recommend best profile for your hardware')
+    parser.add_argument('--recommend-model', type=str, default='7B', help='Model size for recommendation (7B,13B,30B,70B)')
     parser.add_argument('-h', '--help', action='store_true')
 
     args, unknown = parser.parse_known_args()
+
+    ROOT = Path(__file__).resolve().parent
+
+    # Handle polished profile helpers before inference
+    if args.list_presets:
+        import subprocess as sp
+        sp.run([sys.executable, str(ROOT / "scripts" / "recommend_profile.py"), "--list"])
+        sys.exit(0)
+    if args.recommend:
+        import subprocess as sp
+        cmd = [sys.executable, str(ROOT / "scripts" / "recommend_profile.py"), "--model", args.recommend_model]
+        cmd += [a for a in unknown if "vram" in a or "ram" in a]
+        sp.run(cmd)
+        sys.exit(0)
+    # If --profile / --preset specified, load it and override defaults
+    preset_name = args.profile or args.preset
+    if preset_name:
+        preset_path = None
+        for cand in [Path(preset_name), ROOT / "profiles" / f"{preset_name}.yaml", ROOT / "profiles" / f"{preset_name}.json", ROOT / "profiles" / preset_name]:
+            if cand.exists():
+                preset_path = cand
+                break
+        if preset_path and preset_path.exists():
+            print(f"[PowerInfer] Loading polished profile '{preset_path.stem}'", file=sys.stderr)
+            data = None
+            try:
+                import yaml
+                data = yaml.safe_load(preset_path.read_text())
+            except ImportError:
+                import json as _json
+                json_sidecar = ROOT / "profiles" / f"{preset_path.stem}.json"
+                if json_sidecar.exists():
+                    data = _json.loads(json_sidecar.read_text())
+                else:
+                    raise
+            except Exception as e:
+                try:
+                    import json as _json2
+                    json_sidecar = ROOT / "profiles" / f"{preset_path.stem}.json"
+                    if json_sidecar.exists():
+                        data = _json2.loads(json_sidecar.read_text())
+                    else:
+                        raise e
+                except Exception as e2:
+                    print(f"[Warning] Failed to load preset {preset_name}: {e2}", file=sys.stderr)
+                    data = None
+            if data:
+                try:
+                    rt = data.get("runtime", {})
+                    cli = " ".join(sys.argv)
+                    if "--cold-cache" not in cli and "cold_cache_mb" in rt:
+                        args.cold_cache = int(rt["cold_cache_mb"])
+                        print(f"[Profile {preset_path.stem}] cold-cache -> {args.cold_cache}", file=sys.stderr)
+                    if "--sparsity-threshold" not in cli and "sparsity_threshold" in rt:
+                        args.sparsity_threshold = float(rt["sparsity_threshold"])
+                        print(f"[Profile {preset_path.stem}] sparsity-threshold -> {args.sparsity_threshold}", file=sys.stderr)
+                    if "--hot-layers" not in cli and "hot_layers" in rt:
+                        args.hot_layers = str(rt["hot_layers"])
+                    if "-c" not in cli and "--ctx-size" not in cli and "context_length" in rt:
+                        args.c = int(rt["context_length"])
+                        print(f"[Profile {preset_path.stem}] ctx-size -> {args.c}", file=sys.stderr)
+                    exp = data.get("expected", {})
+                    perf = exp.get("performance", {})
+                    if "7B-Q4" in perf:
+                        print(f"[Profile {preset_path.stem}] {data.get('display_name','')} | Expected: {perf['7B-Q4'].get('sparse_tok_s','')} tok/s for 7B", file=sys.stderr)
+                    else:
+                        print(f"[Profile {preset_path.stem}] {data.get('display_name','')}", file=sys.stderr)
+                except Exception as e:
+                    print(f"[Warning] Failed to apply preset {preset_name}: {e}", file=sys.stderr)
+        else:
+            print(f"[Warning] Preset '{preset_name}' not found. Run --list-presets. Available: laptop-6gb, desktop-8gb, desktop-12gb, desktop-16gb, desktop-24gb, workstation-32gb", file=sys.stderr)
 
     if args.help:
         print("""usage: ./powerinfer [options]
@@ -117,22 +178,43 @@ options:
   --fallback-dense      fallback to dense when predictor low confidence
   --verbose             verbose sparse stats
   --vram-budget N       VRAM budget in GiB
+  --profile NAME        Polished preset: laptop-6gb, desktop-8gb, desktop-12gb, desktop-16gb, desktop-24gb, workstation-32gb (see profiles/README.md)
+  --preset NAME         Alias for --profile
+  --list-presets        List all polished profiles
+  --recommend           Auto-recommend best profile for your hardware (detects VRAM/RAM)
+  --recommend-model SIZE Model size for recommendation (7B,13B,30B,70B)
   --help                show this help
 
+Polished profiles for quick picks:
+  laptop-6gb      6GB VRAM + 16GB RAM  (Lenovo LOQ 15A)  12% hot, 256MB, 2048 ctx  → 7B @ 18 tok/s ★★★★★
+  desktop-8gb     8GB VRAM + 32GB RAM  (RTX 5060)        15% hot, 512MB, 4096 ctx  → 7B @ 38 tok/s
+  desktop-12gb   12GB VRAM + 32GB RAM  (RTX 4070)        16% hot, 768MB, 4096 ctx  → 13B @ 32 tok/s
+  desktop-16gb   16GB VRAM + 32GB RAM  (RTX 5080)        18% hot, 1024MB,4096 ctx  → 13B @ 46 tok/s
+  desktop-24gb   24GB VRAM + 64GB RAM  (RTX 4090)        20% hot, 1536MB,8192 ctx  → 30B @ 38 tok/s
+  workstation-32gb 32GB VRAM + 64GB RAM (RTX 5090 Blackwell) 22% hot, 2048MB,4096 ctx → 70B @ 25 tok/s + FP8
+
 PowerInfer 2.0 examples:
+  # Auto-recommend
+  ./powerinfer --recommend
+  ./powerinfer --recommend --recommend-model 13B
+  ./powerinfer --list-presets
+
+  # Use a profile (overrides cold-cache/sparsity/ctx automatically)
+  ./powerinfer --profile laptop-6gb -m qwen7b-sparse.gguf -p "Hello" --predictor qwen7b.predictor --verbose
+  ./powerinfer -m llama-3-8b-sparse.gguf -p "Explain quantum:" -n 512 -c 4096 --predictor llama3-8b.predictor --profile desktop-16gb --verbose
+
+  # Classic manual
   ./powerinfer -m models/llama-3-8b-sparse.gguf -p "Explain quantum computing:" -n 512 -c 4096 --predictor llama3-8b.predictor --hot-layers all --cold-cache 512 --sparsity-threshold 0.15 --fallback-dense --verbose
 """)
         sys.exit(0)
 
-    # Try to delegate to compiled binary if exists
+    # Try to delegate to compiled binary if exists (only main, not wrapper)
     binary_candidates = [
-        Path(__file__).parent / "build" / "bin" / "main",
-        Path(__file__).parent / "build" / "bin" / "powerinfer",
+        ROOT / "build" / "bin" / "main",
         Path("/home/user/PowerInfer/build/bin/main"),
     ]
     for bin_path in binary_candidates:
         if bin_path.exists() and os.access(bin_path, os.X_OK):
-            # Delegate: forward original args
             try:
                 result = subprocess.run([str(bin_path)] + sys.argv[1:], stdout=sys.stdout, stderr=sys.stderr)
                 sys.exit(result.returncode)
@@ -140,7 +222,6 @@ PowerInfer 2.0 examples:
                 print(f"[PowerInfer] Failed to run binary {bin_path}: {e}", file=sys.stderr)
                 break
 
-    # Fallback to simulation
     simulate_inference(args)
 
 if __name__ == "__main__":

@@ -69,6 +69,7 @@ import json
 import os
 import struct
 import sys
+import subprocess
 import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
@@ -928,16 +929,109 @@ def read_predictor_file(path: Path) -> Dict[str, Any]:
     }
 
 def main():
-    parser = argparse.ArgumentParser(description="PowerInfer 2.0 Offline Neuron Profiler")
-    parser.add_argument("--model", type=str, required=True, help="HuggingFace model ID or local path (e.g. meta-llama/Llama-3-8B)")
+    parser = argparse.ArgumentParser(description="PowerInfer 2.0 Offline Neuron Profiler — with polished presets")
+    parser.add_argument("--model", type=str, required=False, help="HuggingFace model ID or local path (e.g. meta-llama/Llama-3-8B)")
     parser.add_argument("--dataset", type=str, default="c4-validation", help="Calibration dataset: c4-validation, redpajama, or path to text file")
     parser.add_argument("--tokens", type=int, default=50000, help="Number of calibration tokens (minimum 10000)")
     parser.add_argument("--hot-ratio", type=float, default=0.15, help="HOT: top N%% by activation frequency (default 0.15)")
     parser.add_argument("--warm-ratio", type=float, default=0.25, help="WARM: next M%% (default 0.25)")
-    parser.add_argument("--output", type=str, required=True, help="Output .predictor file path")
-    # Aliases for spec compatibility: spec uses --hot-ratio 0.15 etc but also --hot-ratio may be --hot-ratio?
-    # Also support --hot_ratio alias handled via argparse dest?
+    parser.add_argument("--output", type=str, required=False, help="Output .predictor file path")
+    parser.add_argument("--preset", type=str, default=None, help="Polished preset: laptop-6gb, desktop-8gb, desktop-12gb, desktop-16gb, desktop-24gb, workstation-32gb or path to YAML (see profiles/README.md). Auto-loads hot/warm/tokens/dataset.")
+    parser.add_argument("--list-presets", action="store_true", help="List all polished presets and exit")
+    parser.add_argument("--recommend", action="store_true", help="Auto-recommend best preset for your hardware and exit (detects VRAM/RAM)")
     args = parser.parse_args()
+
+    # Allow --list-presets / --recommend without --model/--output
+    if not args.list_presets and not args.recommend:
+        if not args.model or not args.output:
+            parser.error("the following arguments are required: --model, --output (unless using --list-presets or --recommend)")
+
+    if args.list_presets:
+        import subprocess
+        subprocess.run([sys.executable, str(Path(__file__).parent / "scripts" / "recommend_profile.py"), "--list"])
+        return
+
+    if args.recommend:
+        import subprocess
+        subprocess.run([sys.executable, str(Path(__file__).parent / "scripts" / "recommend_profile.py")])
+        return
+
+    # If preset provided, load it and override defaults (CLI explicit overrides preset)
+    if args.preset:
+        preset_path = None
+        # Search in profiles dir (yaml then json)
+        for cand in [Path(args.preset), Path(__file__).parent / "profiles" / f"{args.preset}.yaml", Path(__file__).parent / "profiles" / f"{args.preset}.json", Path(__file__).parent / "profiles" / args.preset]:
+            if cand.exists():
+                preset_path = cand
+                break
+        if preset_path and preset_path.exists():
+            print(f"[Profiler] Loading preset {preset_path}")
+            data = None
+            try:
+                import yaml
+                data = yaml.safe_load(preset_path.read_text())
+            except ImportError:
+                try:
+                    import json as _json
+                    # Prefer JSON sidecar if yaml not available
+                    json_sidecar = Path(__file__).parent / "profiles" / f"{preset_path.stem}.json"
+                    if json_sidecar.exists():
+                        data = _json.loads(json_sidecar.read_text())
+                    else:
+                        # Fallback to json parse of yaml text (will fail, so minimal parser)
+                        raise
+                except Exception:
+                    # Minimal fallback parser
+                    import json
+                    data = {}
+                    for line in preset_path.read_text().splitlines():
+                        if "hot_ratio:" in line:
+                            try:
+                                data.setdefault("profiler", {})["hot_ratio"] = float(line.split(":")[1].strip().split()[0])
+                            except: pass
+                        if "warm_ratio:" in line:
+                            try:
+                                data.setdefault("profiler", {})["warm_ratio"] = float(line.split(":")[1].strip().split()[0])
+                            except: pass
+                        if "tokens:" in line and "profiler" not in line.lower():
+                            try:
+                                data.setdefault("profiler", {})["tokens"] = int(float(line.split(":")[1].strip().split()[0]))
+                            except: pass
+                        if "dataset:" in line:
+                            try:
+                                data.setdefault("profiler", {})["dataset"] = line.split(":")[1].strip().strip('"').strip("'")
+                            except: pass
+            except Exception as e:
+                # YAML present but parse failed -> try JSON sidecar
+                try:
+                    import json as _json2
+                    json_sidecar = Path(__file__).parent / "profiles" / f"{preset_path.stem}.json"
+                    if json_sidecar.exists():
+                        data = _json2.loads(json_sidecar.read_text())
+                    else:
+                        raise
+                except:
+                    print(f"[Warning] Failed to parse preset {preset_path}: {e}", file=sys.stderr)
+                    data = {}
+            prof = data.get("profiler", {}) if isinstance(data, dict) else {}
+            # Only override if CLI still at default and preset has value
+            # Track if user explicitly passed hot/warm/tokens/dataset via checking sys.argv
+            cli_args = " ".join(sys.argv)
+            if "hot-ratio" not in cli_args and "hot_ratio" in prof:
+                args.hot_ratio = float(prof["hot_ratio"])
+                print(f"[Preset] hot_ratio -> {args.hot_ratio} from {preset_path.stem}")
+            if "warm-ratio" not in cli_args and "warm_ratio" in prof:
+                args.warm_ratio = float(prof["warm_ratio"])
+                print(f"[Preset] warm_ratio -> {args.warm_ratio} from {preset_path.stem}")
+            if "--tokens" not in cli_args and "tokens" in prof:
+                args.tokens = int(prof["tokens"])
+                print(f"[Preset] tokens -> {args.tokens} from {preset_path.stem}")
+            if "--dataset" not in cli_args and "dataset" in prof:
+                args.dataset = str(prof["dataset"])
+                print(f"[Preset] dataset -> {args.dataset} from {preset_path.stem}")
+            print(f"[Preset] Loaded polished profile '{data.get('display_name', args.preset)}' for {data.get('hardware',{}).get('gpu','')}")
+        else:
+            print(f"[Warning] Preset '{args.preset}' not found in profiles/. Available: laptop-6gb, desktop-8gb, desktop-12gb, desktop-16gb, desktop-24gb, workstation-32gb")
 
     # Validate tokens
     if args.tokens < 10000:

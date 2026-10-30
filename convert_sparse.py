@@ -264,13 +264,74 @@ def csr_compress(matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray
 
 def main():
     parser = argparse.ArgumentParser(description="PowerInfer 2.0 Sparse Weight Layout & Quantization Converter")
-    parser.add_argument("--input", type=str, required=True, help="Input dense GGUF file (e.g. llama-3-8b-q4_k_m.gguf)")
-    parser.add_argument("--predictor", type=str, required=True, help="Predictor file (.predictor) from profile.py")
-    parser.add_argument("--output", type=str, required=True, help="Output sparse GGUF file (SPARSE_GGUF)")
+    parser.add_argument("--input", type=str, required=False, help="Input dense GGUF file (e.g. llama-3-8b-q4_k_m.gguf)")
+    parser.add_argument("--predictor", type=str, required=False, help="Predictor file (.predictor) from profile.py")
+    parser.add_argument("--output", type=str, required=False, help="Output sparse GGUF file (SPARSE_GGUF)")
     parser.add_argument("--hot-quant", type=str, default="q8_0", help="Quantization for hot weights: q8_0, q6_k (default q8_0)")
     parser.add_argument("--cold-quant", type=str, default="q3_k_m", help="Quantization for cold weights: q4_k_m, q3_k_m (default q3_k_m)")
     parser.add_argument("--cold-cache", type=int, default=512, help="Cold LRU cache size MB (default 512) - recorded as metadata")
+    parser.add_argument("--profile", type=str, default="", help="Polished preset (laptop-6gb, desktop-8gb, desktop-12gb, desktop-16gb, desktop-24gb, workstation-32gb) - overrides quant/cache")
+    parser.add_argument("--preset", type=str, default="", help="Alias for --profile")
+    parser.add_argument("--list-presets", action="store_true", help="List all polished profiles")
+
     args = parser.parse_args()
+
+    # Allow --list-presets without other args
+    if not getattr(args, 'list_presets', False):
+        if not args.input or not args.predictor or not args.output:
+            parser.error("the following arguments are required: --input, --predictor, --output (unless using --list-presets)")
+
+    # Handle --list-presets early
+    if getattr(args, 'list_presets', False):
+        import subprocess as sp
+        sp.run([sys.executable, str(Path(__file__).parent / "scripts" / "recommend_profile.py"), "--list"])
+        sys.exit(0)
+    # Apply polished preset if specified (overrides unless explicitly set)
+    preset_name = getattr(args, 'profile', '') or getattr(args, 'preset', '')
+    if preset_name:
+        for cand in [Path(preset_name), Path(__file__).parent / "profiles" / f"{preset_name}.yaml", Path(__file__).parent / "profiles" / f"{preset_name}.json", Path(__file__).parent / "profiles" / preset_name]:
+            if cand.exists():
+                print(f"[Converter] Loading polished profile '{cand.stem}'")
+                data = None
+                try:
+                    import yaml as _yaml
+                    data = _yaml.safe_load(cand.read_text())
+                except ImportError:
+                    import json as _json
+                    json_sidecar = Path(__file__).parent / "profiles" / f"{cand.stem}.json"
+                    if json_sidecar.exists():
+                        data = _json.loads(json_sidecar.read_text())
+                    else:
+                        raise
+                except Exception as e:
+                    # yaml exists but parse failed -> try json sidecar
+                    try:
+                        import json as _json2
+                        json_sidecar = Path(__file__).parent / "profiles" / f"{cand.stem}.json"
+                        if json_sidecar.exists():
+                            data = _json2.loads(json_sidecar.read_text())
+                        else:
+                            raise e
+                    except Exception as e2:
+                        print(f"[Warning] Failed to parse preset {preset_name}: {e2}", file=sys.stderr)
+                        data = None
+                if data:
+                    cv = data.get('converter', {})
+                    rt = data.get('runtime', {})
+                    cli = ' '.join(sys.argv)
+                    if '--hot-quant' not in cli and 'hot_quant' in cv:
+                        args.hot_quant = cv['hot_quant']
+                        print(f"[Profile {cand.stem}] hot-quant -> {args.hot_quant}")
+                    if '--cold-quant' not in cli and 'cold_quant' in cv:
+                        args.cold_quant = cv['cold_quant']
+                        print(f"[Profile {cand.stem}] cold-quant -> {args.cold_quant}")
+                    if '--cold-cache' not in cli and 'cold_cache_mb' in rt:
+                        args.cold_cache = int(rt['cold_cache_mb'])
+                        print(f"[Profile {cand.stem}] cold-cache -> {args.cold_cache}")
+                    print(f"[Profile {cand.stem}] {data.get('display_name','')} — honor preset or override with explicit CLI")
+                break
+        else:
+            print(f"[Warning] Preset '{preset_name}' not found. Run --list-presets", file=sys.stderr)
 
     input_path = Path(args.input)
     predictor_path = Path(args.predictor)
@@ -305,7 +366,7 @@ def main():
             # fallback
             from pathlib import Path as P
             # try profile import again via manual
-            import importlib.util, sys
+            import importlib.util
             spec = importlib.util.spec_from_file_location("profile", str(Path(__file__).parent / "profile.py"))
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
