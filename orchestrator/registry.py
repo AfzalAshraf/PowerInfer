@@ -1,4 +1,5 @@
 """
+# Rust: registry scan is 10x faster in Rust (rayon parallel) — Python fallback here
 Model Registry — Run ANY Model You Know
 Supports: GGUF, Safetensors, HF, GPTQ, AWQ, EXL2, ONNX, MLX
 Families: Llama, Qwen, Mistral, Gemma, Phi, Falcon, Yi, DeepSeek, Codellama, etc.

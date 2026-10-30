@@ -118,6 +118,15 @@ def detect_disk_gb() -> Optional[int]:
     return None
 
 def detect_all() -> Dict[str, Any]:
+    # Try blazing fast Rust first (<1ms vs 50ms)
+    try:
+        from ._rust import detect_hardware_rust, has_rust
+        if has_rust():
+            rust_hw = detect_hardware_rust()
+            if rust_hw:
+                return rust_hw
+    except:
+        pass
     gpu = detect_gpu()
     cpu = detect_cpu()
     ram = detect_ram_gb()

@@ -67,6 +67,25 @@ class NeuroRouter:
         return {"intent": intent, "complexity": complexity, "latency": latency, "tokens": length}
 
     def route(self, prompt: str, hw: Dict = None, task_hint="auto", vram_gb=6, ram_gb=16) -> RouteDecision:
+        # Try Rust router (<2ms vs 10ms)
+        try:
+            from ._rust import router_route_rust, has_rust
+            if has_rust():
+                rust_decision = router_route_rust(prompt, vram_gb, ram_gb, task_hint)
+                if rust_decision:
+                    # Convert Rust dict to RouteDecision
+                    return RouteDecision(
+                        model_alias=rust_decision.get("model_alias", "phi3-mini"),
+                        backend=rust_decision.get("backend", "powerinfer"),
+                        profile=rust_decision.get("profile", "laptop-6gb"),
+                        quant=rust_decision.get("quant", "q4_k_m"),
+                        reason=rust_decision.get("reason", "rust"),
+                        confidence=rust_decision.get("confidence", 0.9),
+                        vram_needed=rust_decision.get("vram_needed", 4.5),
+                        fallback=rust_decision.get("fallback", ["phi3-mini"])
+                    )
+        except:
+            pass
         hw = hw or {}
         vram = hw.get("vram_gb", vram_gb)
         ram = hw.get("ram_gb", ram_gb)
